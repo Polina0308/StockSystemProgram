@@ -6,7 +6,7 @@ spring:
     password: postgres
   jpa:
     hibernate:
-      ddl-auto: create-drop
+      ddl-auto: none
     show-sql: true
   flyway:
     baseline-on-migrate: true

@@ -1,34 +1,51 @@
 package com.example.stocksystem.controller;
 
 import com.example.stocksystem.entity.Client;
-import com.example.stocksystem.message.ClientSearchResponse;
 import com.example.stocksystem.service.ClientService;
+import com.example.stocksystem.utill.*;
+import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.validation.annotation.Validated;
+import org.springframework.validation.BindingResult;
+import org.springframework.validation.FieldError;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
 import java.util.List;
-import java.util.Optional;
+import java.util.Map;
+
 
 @RestController
 @RequestMapping("/api/clients")
 public class ClientController {
     @Autowired
-    private ClientService clientService;
+    private final ClientService clientService;
 
-    @PostMapping
-    public ResponseEntity<Client> createClient(@Valid @RequestBody Client client) {
-        Client createdClient = clientService.createClient(client);
-        return new ResponseEntity<>(createdClient, HttpStatus.CREATED);
+    public ClientController(ClientService clientService) {
+        this.clientService = clientService;
     }
 
-    @GetMapping("/{clientId}")
-    public ResponseEntity<Client> getClient(@PathVariable int clientId) {
-        Client client = clientService.getClient(clientId);
-        return new ResponseEntity<>(client, HttpStatus.OK);
+    @PostMapping
+    public ResponseEntity<Client> createClient(@RequestBody @Valid Client client, BindingResult bindingResult) {
+        if (bindingResult.hasErrors()) {
+            StringBuilder errorMsg = new StringBuilder();
+
+            List<FieldError> errors = bindingResult.getFieldErrors();
+            for (FieldError error : errors) {
+                errorMsg.append(error.getField())
+                        .append(" - ")
+                        .append(error.getDefaultMessage())
+                        .append(";");
+            }
+            throw new ClientNotCreatedException(errorMsg.toString());
+        }
+        clientService.createClient(client);
+        return ResponseEntity.ok(client);
+
+
     }
 
     @PutMapping("/{clientId}")
@@ -44,39 +61,83 @@ public class ClientController {
     }
 
 
-    @GetMapping("/searchByEmail/{email}")
-    public ResponseEntity<?> searchClientsByEmail(@PathVariable String email) {
-        List<Client> clients = clientService.findClientByEmail(email);
-
-        if (clients.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Клиент не найден");
-        }
-
-        return ResponseEntity.ok(clients);
+    @GetMapping("/{clientId}")
+    public Client getClient(@PathVariable int clientId) {
+        return clientService.getClient(clientId);
     }
 
-
+    @GetMapping("/searchByEmail/{email}")
+    public Client searchClientsByEmail(@PathVariable String email) {
+        return clientService.findClientByEmail(email);
+    }
 
     @GetMapping("/searchByName/{name}")
-    public ResponseEntity<?> searchClientsByName(@PathVariable String name) {
-        List<Client> clients = clientService.findClientsByName(name);
-
-        if (clients.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Клиент не найден");
-        }
-
-        return ResponseEntity.ok(clients);
+    public List<Client> searchClientsByName(@PathVariable String name) {
+        return clientService.findClientsByName(name);
     }
+
     @GetMapping("/searchByPhoneNumber/{phone_number}")
-    public ResponseEntity<?> searchClientsByPhoneNumber(@PathVariable String phone_number) {
-        List<Client> clients = clientService.findClientsByPhoneNumber(phone_number);
-
-        if (clients.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Клиент не найден");
-        }
-
-        return ResponseEntity.ok(clients);
+    public Client searchClientsByPhoneNumber(@PathVariable String phone_number) {
+        return clientService.findClientsByPhoneNumber(phone_number);
     }
 
+
+    @ExceptionHandler
+    private ResponseEntity<ClientErrorResponse> handleException(ClientNotFoundException e) {
+        ClientErrorResponse response = new ClientErrorResponse(
+                "Клиент не найден",
+                System.currentTimeMillis()
+        );
+        return new ResponseEntity<>(response, HttpStatus.NOT_FOUND);
+    }
+
+    @ExceptionHandler
+    private ResponseEntity<ClientErrorResponse> handleDeleteException(ClientNotDeletedException e) {
+        ClientErrorResponse response = new ClientErrorResponse(
+                "Не удалось удалить клиента",
+                System.currentTimeMillis()
+        );
+        return new ResponseEntity<>(response, HttpStatus.BAD_REQUEST);
+    }
+
+    @ExceptionHandler
+    private ResponseEntity<ClientErrorResponse> handleUpdateException(ClientNotUpdatedException e) {
+        ClientErrorResponse response = new ClientErrorResponse(
+                "Не удалось обновить данные о клиенте",
+                System.currentTimeMillis()
+        );
+        return new ResponseEntity<>(response, HttpStatus.BAD_REQUEST);
+    }
+
+    @ExceptionHandler
+    public ResponseEntity<ClientErrorResponse> handleCreatedException(ClientNotCreatedException e) {
+        ClientErrorResponse response = new ClientErrorResponse(
+                e.getMessage(),
+                System.currentTimeMillis()
+        );
+        return new ResponseEntity<>(response, HttpStatus.BAD_REQUEST);
+    }
+
+
+
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    @ResponseBody
+    public ResponseEntity<Map<String, Object>> handleDataIntegrityViolation(DataIntegrityViolationException ex) {
+
+        String message = ex.getMostSpecificCause().getMessage();
+        String errorMessage = "Неизвестная ошибка";
+
+        if (message.contains("client_phonenumber_unq")) {
+            errorMessage = "Номер телефона уже используется";
+        } else if (message.contains("client_email_unq")) {
+            errorMessage = "Email уже используется";
+        }
+
+        Map<String, Object> errorResponse = new HashMap<>();
+        errorResponse.put("message", errorMessage);
+        errorResponse.put("timestamp", System.currentTimeMillis());
+
+        return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
+    }
 
 }
